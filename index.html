@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>網頁時鐘與萬年曆</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入農曆轉換的外部JavaScript函式庫 -->
+    <script src="https://unpkg.com/lunar-javascript@1.7.3/lunar.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap');
+        
+        :root {
+            --highlight-color: #ff5b3f; /* 橙紅色 */
+            --background-color: #000;
+            --text-color: #fff;
+            --dim-text-color: #aaa;
+            /* 可自訂顏色變數 */
+            --hour-hand-color: #fff;
+            --minute-hand-color: #fff;
+            --second-hand-color: #ff5b3f;
+            --tick-color: #fff;
+            --calendar-header-color: #ff5b3f;
+            --calendar-weekday-color: #888;
+            --calendar-day-color: #fff;
+            --calendar-lunar-color: #aaa;
+        }
+
+        html {
+            /* 使用 clamp 提供更平滑、更可控的字體縮放 */
+            font-size: clamp(12px, 1.5vw, 18px);
+        }
+
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        /* 主要容器現在只負責佔滿螢幕並置中內容 */
+        .main-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 這個新的包裝容器才是真正會移動的對象 */
+        #movable-content-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4vh;
+            padding: 1rem;
+            transition: transform 1.5s ease-in-out;
+        }
+        
+        /* 媒體查詢，針對平板和桌面調整內容佈局 */
+        @media (min-width: 768px) and (min-height: 500px) {
+            #movable-content-wrapper {
+                flex-direction: row;
+                justify-content: center; /* 改為置中 */
+                align-items: center; /* 增加垂直置中 */
+                gap: 8vw; /* 增加間距 */
+                width: 95vw; /* 使用更多螢幕寬度 */
+                max-width: 1200px; /* 設定最大寬度，避免在超寬螢幕上過度拉伸 */
+            }
+        }
+
+        /* 時鐘容器 */
+        .clock-container {
+            width: clamp(420px, 45vw, 825px);
+            aspect-ratio: 1 / 1; /* 保持圓形 */
+            position: relative;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: var(--background-color);
+            box-shadow: 0 0 0 0px var(--tick-color);
+            flex-shrink: 0; /* 防止元件在空間不足時被壓縮 */
+        }
+        
+        /* 日曆容器 */
+        .calendar-container {
+            /* 調整寬度以更好地適應新的日曆樣式 */
+            width: clamp(320px, 35vw, 600px);
+            padding: 1rem;
+            text-align: center;
+            z-index: 10;
+        }
+
+        .clock-container::before {
+            content: '';
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: var(--tick-color); /* 使用變數 */
+            border-radius: 50%;
+            z-index: 1;
+        }
+
+        /* 時鐘指針 */
+        .hand { position: absolute; height: 100%; width: 100%; }
+        .hour-hand i { position: absolute; top: 25%; left: 50%; width: 10px; height: 25%; background-color: var(--hour-hand-color); transform: translateX(-50%); border-radius: 2px; }
+        .minute-hand i { position: absolute; top: 15%; left: 50%; width: 6px; height: 35%; background-color: var(--minute-hand-color); transform: translateX(-50%); border-radius: 2px; }
+        .second-hand i { position: absolute; top: 10%; left: 50%; width: 2px; height: 40%; background-color: var(--second-hand-color); transform: translateX(-50%); border-radius: 1px; }
+
+        /* 時鐘數字與刻度 */
+        .number, .tick-wrapper { position: absolute; left: 0; width: 100%; height: 100%; color: var(--tick-color); }
+        .number div { position: absolute; top: -45px; width: 100%; height: 100%; font-size: clamp(1.8rem, 7.5vw, 3.3rem); font-weight: 700; text-align: center; transform: rotate(var(--rotation)) translateY(calc(-50% + 3.75rem)) rotate(calc(-1 * var(--rotation))); }
+        .tick-wrapper { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .tick { position: absolute; background: var(--tick-color); left: 50%; transform: translateX(-50%); }
+        .tick-hour { height: 12px; width: 3px; top: 0; }
+        .tick-minute { height: 6px; width: 1px; top: 0; opacity: 0.7; }
+        
+        .calendar-header {
+            font-size: clamp(1.5rem, 5vw, 2.5rem);
+            font-weight: bold;
+            margin-bottom: 1rem;
+            color: var(--calendar-header-color);
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+        .calendar-header:hover { filter: brightness(1.2); }
+
+        /* --- 彈出視窗 (Modal) 通用樣式 --- */
+		.modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.8); }
+		.modal.is-active { display: flex; justify-content: center; align-items: center; }
+        .modal-base-content { background-color: #222; margin: auto; padding: 20px; border: 1px solid #555; width: 90%; max-width: 600px; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); color: #e0e0e0; text-align: center; display: flex; flex-direction: column; gap: 15px; max-height: 90vh; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 0 10px; }
+		.modal-header h2 { margin: 0; font-size: 1.5em; color: var(--highlight-color); cursor: pointer; }
+		.modal-header button { background: none; border: none; color: var(--highlight-color); font-size: 2em; cursor: pointer; }
+        .modal-footer { display: flex; justify-content: center; gap: 10px; width: 100%; margin-top: 10px; flex-wrap: wrap; }
+        .action-button { background-color: #555; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 1.1em; }
+		.action-button:hover { background-color: #777; }
+        
+        /* --- 統一的月曆樣式 (主畫面與彈窗共用) --- */
+		.calendar-content { max-width: 800px; }
+        /* 星期標題容器 */
+		.calendar-weekdays { 
+            display: grid; 
+            grid-template-columns: repeat(7, 1fr); 
+            gap: 5px; 
+            font-weight: bold; 
+            color: var(--calendar-weekday-color); /* 使用CSS變數 */
+            padding-bottom: 5px; 
+            text-align: center;
+            font-size: clamp(0.8rem, 2.5vw, 1.2rem); /* 調整字體大小 */
+        }
+        /* 日期網格容器 */
+		.calendar-grid-popup { 
+            display: grid; 
+            grid-template-columns: repeat(7, 1fr); 
+            gap: 5px; 
+        }
+        /* 每日儲存格 */
+		.calendar-day-popup { 
+            background-color: #444; 
+            border-radius: 5px; 
+            padding: 5px; 
+            aspect-ratio: 5 / 6; /* 給予一個固定的長寬比 */
+            display: flex; 
+            flex-direction: column; 
+            justify-content: flex-start; 
+            align-items: center; 
+            font-size: 0.9em; 
+            border: 1px solid #555; 
+            cursor: pointer; 
+            transition: background-color 0.3s, box-shadow 0.3s; 
+            overflow: hidden; /* 隱藏超出的內容 */
+        }
+        .calendar-day-popup:hover { background-color: #5e5e5e; }
+        
+        /* 針對主畫面日曆，覆蓋背景和邊框 */
+        .calendar-container .calendar-day-popup {
+            background-color: transparent;
+            border-color: transparent;
+        }
+        .calendar-container .calendar-day-popup:hover {
+            background-color: #333; /* 在主畫面保留 hover 效果 */
+        }
+
+        /* 當日高亮 */
+		.calendar-day-popup.is-today { 
+            border-color: var(--highlight-color); 
+            box-shadow: 0 0 5px var(--highlight-color); 
+        }
+        /* 主畫面的當日高亮也使用透明背景 */
+        .calendar-container .calendar-day-popup.is-today {
+            background-color: transparent;
+        }
+
+        /* 非本月日期 (僅彈窗使用) */
+        .calendar-day-popup.other-month { 
+            color: #777; 
+            background-color: #3a3a3a; 
+            cursor: default; 
+        }
+        /* 公曆日期 */
+		.calendar-day-popup .gregorian-day { 
+            font-size: 1.2em; 
+            font-weight: bold; 
+            color: var(--calendar-day-color); /* 使用CSS變數 */
+        }
+        /* 農曆/節日 */
+		.calendar-day-popup .lunar-day { 
+            font-size: 0.8em; 
+            color: var(--calendar-lunar-color); /* 使用CSS變數 */
+        }
+        /* 事件標示 (節日/節氣) */
+        .event-indicator { 
+            font-size: 0.75em; 
+            padding: 1px 4px; 
+            border-radius: 3px; 
+            margin-top: 3px; 
+            display: block; 
+            text-align: center; 
+            width: 90%; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            white-space: nowrap; 
+        }
+        .event-indicator.holiday { background-color: #007bff; color: white; }
+        .event-indicator.jieqi { background-color: #28a745; color: white; }
+        
+        /* 年曆 */
+		.yearly-calendar-content { max-width: 1400px; }
+		.yearly-calendar-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; overflow-y: auto; padding: 10px; max-height: 75vh; }
+		.yearly-month-container { background-color: #3a3a3a; border-radius: 8px; padding: 10px; border: 1px solid #555; }
+		.yearly-month-header { font-size: 1.2em; font-weight: bold; text-align: center; margin-bottom: 10px; color: var(--highlight-color); cursor: pointer; }
+		.yearly-weekdays, .yearly-day-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
+		.yearly-weekdays div { font-size: 0.8em; color: #aaa; }
+		.yearly-day { font-size: 0.9em; padding: 2px; border-radius: 3px; position: relative; cursor: pointer; transition: background-color 0.3s; min-height: 24px; }
+        .yearly-day:hover { background-color: #555; }
+		.yearly-day.is-today { background-color: var(--highlight-color); color: #000; font-weight: bold; }
+        .yearly-indicators { position: absolute; bottom: 1px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; }
+        .yearly-indicators .dot { width: 4px; height: 4px; border-radius: 50%; }
+        .yearly-indicators .holiday { background-color: #007bff; }
+        .yearly-indicators .jieqi { background-color: #28a745; }
+
+        /* 日期詳情 */
+        .details-content { overflow-y: auto; }
+        .details-content p { margin-bottom: 10px; font-size: 1.2em; line-height: 1.6; }
+        .details-content strong { color: #FFD700; }
+        .details-content .yi-ji-grid { display: grid; grid-template-columns: 40px 1fr; gap: 5px 10px; text-align: left;}
+        .details-content .yi-ji-grid strong { grid-column: 1; color: #FFD700; }
+        .details-content .yi-ji-grid span { grid-column: 2; }
+        .details-content .countdown-section { border-top: 1px solid #555; margin-top: 15px; padding-top: 15px; font-size: 1em; }
+
+        /* 控制圖示 */
+        .control-icon { position: fixed; bottom: 20px; width: 32px; height: 32px; cursor: pointer; z-index: 200; opacity: 0.5; transition: opacity 0.3s ease; }
+		.control-icon svg { width: 100%; height: 100%; fill: #fff; }
+		.control-icon:hover { opacity: 1; }
+		#settings-icon { right: 62px; }
+		#fullscreen-icon { right: 20px; }
+
+        /* 設定彈窗 */
+        .settings-content { max-width: 500px; overflow-y: auto; }
+        .setting-item { margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;}
+        .setting-item label:first-child { margin-right: auto; flex-shrink: 0;}
+        .switch { position: relative; display: inline-block; width: 60px; height: 34px; flex-shrink: 0; }
+		.switch input { opacity: 0; width: 0; height: 0; }
+		.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+		.slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+		input:checked + .slider { background-color: var(--highlight-color); }
+		input:focus + .slider { box-shadow: 0 0 1px var(--highlight-color); }
+		input:checked + .slider:before { transform: translateX(26px); }
+        .setting-item input[type="color"] { width: 40px; height: 34px; border: none; padding: 0; background: none; cursor: pointer; flex-shrink: 0; }
+        .settings-columns-container { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-around; width: 100%; }
+        .settings-column { flex: 1; min-width: 180px; padding: 10px; border: 1px solid #555; border-radius: 8px; background-color: #333; }
+        .settings-column h3 { text-align: center; margin-top: 0; margin-bottom: 15px; color: var(--highlight-color); }
+        .interval-selector-group { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+        .interval-select { background-color: #555; color: white; border: 1px solid #888; border-radius: 4px; padding: 5px; font-size: 0.9em; }
+        .interval-select-label { color: #ccc; font-size: 0.9em; margin-left: 2px; margin-right: 5px; }
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+        <div id="movable-content-wrapper">
+            <!-- 類比時鐘 -->
+            <div class="clock-container">
+                <div class="hand hour-hand"><i></i></div>
+                <div class="hand minute-hand"><i></i></div>
+                <div class="hand second-hand"><i></i></div>
+                <div id="ticks-container"></div>
+                <div id="numbers-container"></div>
+            </div>
+
+            <!-- 主頁日曆 (已更新結構與Class) -->
+            <div class="calendar-container">
+                <h2 class="calendar-header" id="calendar-header"></h2>
+                <div class="calendar-weekdays" id="main-calendar-weekdays"></div>
+                <div class="calendar-grid-popup" id="calendar-days"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 月曆彈出視窗 -->
+    <div class="modal" id="calendarModal">
+        <div class="modal-base-content calendar-content">
+            <div class="modal-header">
+                <button id="prevMonthBtn">&lt;</button>
+                <h2 id="calendarMonthYear"></h2>
+                <button id="nextMonthBtn">&gt;</button>
+            </div>
+            <div class="calendar-weekdays" id="popup-calendar-weekdays"></div>
+            <div class="calendar-grid-popup" id="calendarGrid"></div>
+            <div class="modal-footer">
+                <button class="action-button" id="todayCalendarBtn">今天</button>
+                <button class="action-button" id="closeCalendarBtn">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 其他彈出視窗 (未變動) -->
+    <div class="modal" id="yearlyCalendarModal">
+        <div class="modal-base-content yearly-calendar-content">
+            <div class="modal-header">
+                <button id="prevYearBtn">&lt;</button>
+                <h2 id="yearlyCalendarTitle"></h2>
+                <button id="nextYearBtn">&gt;</button>
+            </div>
+            <div class="yearly-calendar-grid" id="yearlyCalendarGrid"></div>
+            <div class="modal-footer">
+                <button class="action-button" id="todayYearlyBtn">今年</button>
+                <button class="action-button" id="closeYearlyCalendarBtn">關閉</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal" id="dateDetailsModal">
+        <div class="modal-base-content details-content">
+            <div class="modal-header">
+                 <h2 id="dateDetailsModalTitle">當日詳情</h2>
+            </div>
+            <div id="dateDetailsModalContent" style="text-align: left;"></div>
+            <div class="modal-footer">
+                <button class="action-button" id="closeDetailsBtn">關閉</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal" id="settingsModal">
+        <div class="modal-base-content settings-content">
+            <div class="modal-header">
+                <h2>顯示設定</h2>
+            </div>
+            <div class="settings-columns-container">
+                <div class="settings-column">
+                    <h3>時鐘</h3>
+                    <div class="setting-item"><label for="hourHandColor">時針</label><input id="hourHandColor" type="color"></div>
+                    <div class="setting-item"><label for="minuteHandColor">分針</label><input id="minuteHandColor" type="color"></div>
+                    <div class="setting-item"><label for="secondHandColor">秒針</label><input id="secondHandColor" type="color"></div>
+                    <div class="setting-item"><label for="tickColor">刻度與外框</label><input id="tickColor" type="color"></div>
+                </div>
+                <div class="settings-column">
+                    <h3>日曆</h3>
+                    <div class="setting-item"><label for="calendarHeaderColor">年月標題</label><input id="calendarHeaderColor" type="color"></div>
+                    <div class="setting-item"><label for="calendarWeekdayColor">周標題</label><input id="calendarWeekdayColor" type="color"></div>
+                    <div class="setting-item"><label for="calendarDayColor">日期</label><input id="calendarDayColor" type="color"></div>
+                    <div class="setting-item"><label for="calendarLunarColor">農曆</label><input id="calendarLunarColor" type="color"></div>
+                </div>
+            </div>
+            <div class="setting-item">
+                <label for="enableMovement">隨機飄移</label>
+                <div class="interval-selector-group">
+                    <select id="movementIntervalMinutes" class="interval-select"></select><span class="interval-select-label">分</span>
+                    <select id="movementIntervalSeconds" class="interval-select"></select><span class="interval-select-label">秒</span>
+                </div>
+                <label class="switch"><input id="enableMovement" type="checkbox"><span class="slider"></span></label>
+            </div>
+            <div class="setting-item"><label for="backgroundColor">背景顏色</label><input id="backgroundColor" type="color"></div>
+            <div class="modal-footer">
+                <button class="action-button" id="restoreDefaultsBtn">恢復預設</button>
+                <button class="action-button" id="randomColorsBtn">隨機顏色</button>
+                <button class="action-button" id="doneSettingsBtn">完成</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 控制圖示 -->
+    <div id="settings-icon" class="control-icon" title="設定">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69-.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+    </div>
+    <div id="fullscreen-icon" class="control-icon" title="全螢幕/退出全螢幕">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"></path></svg>
+    </div>
+
+
+    <script>
+        // DOM 元素獲取
+        const dom = {
+            movableWrapper: document.getElementById('movable-content-wrapper'),
+            hourHand: document.querySelector('.hour-hand'),
+            minuteHand: document.querySelector('.minute-hand'),
+            secondHand: document.querySelector('.second-hand'),
+            calendarHeader: document.getElementById('calendar-header'),
+            mainCalendarWeekdays: document.getElementById('main-calendar-weekdays'), // 新增
+            calendarDays: document.getElementById('calendar-days'),
+            numbersContainer: document.getElementById('numbers-container'),
+            ticksContainer: document.getElementById('ticks-container'),
+            // 彈窗元素
+            calendarModal: document.getElementById('calendarModal'),
+            calendarMonthYear: document.getElementById('calendarMonthYear'),
+            calendarGrid: document.getElementById('calendarGrid'),
+            popupCalendarWeekdays: document.getElementById('popup-calendar-weekdays'), // 修改ID以區分
+            yearlyCalendarModal: document.getElementById('yearlyCalendarModal'),
+            yearlyCalendarTitle: document.getElementById('yearlyCalendarTitle'),
+            yearlyCalendarGrid: document.getElementById('yearlyCalendarGrid'),
+            dateDetailsModal: document.getElementById('dateDetailsModal'),
+            dateDetailsModalContent: document.getElementById('dateDetailsModalContent'),
+            dateDetailsModalTitle: document.getElementById('dateDetailsModalTitle'),
+            settingsModal: document.getElementById('settingsModal'),
+        };
+
+        const defaultSettings = {
+            backgroundColor: '#000000',
+            enableMovement: true,
+            movementIntervalMinutes: 0,
+            movementIntervalSeconds: 10,
+            hourHandColor: '#ffffff',
+            minuteHandColor: '#ffffff',
+            secondHandColor: '#ff5b3f',
+            tickColor: '#ffffff',
+            calendarHeaderColor: '#ff5b3f',
+            calendarWeekdayColor: '#888888',
+            calendarDayColor: '#ffffff',
+            calendarLunarColor: '#aaaaaa',
+        };
+        let settings = { ...defaultSettings };
+        let movementTimer = null;
+
+        // 狀態變數
+        let calendarDate = new Date();
+        let yearlyCalendarDate = new Date();
+        let yearlyDataCache = { year: -1, holidays: [], jieqi: [] };
+
+        /**
+         * 簡轉繁功能
+         */
+        function s2t(input) {
+            if (typeof input !== 'string' && !Array.isArray(input)) return input;
+            const s2tMap = { '见': '見', '贵': '貴', '无': '無', '开': '開', '纳': '納', '财': '財', '挂': '掛', '梁': '樑', '动': '動', '种': '種', '启': '啟', '钻': '鑽', '订': '訂', '竖': '豎', '门': '門', '词': '詞', '讼': '訟', '发': '髮', '养': '養', '马': '馬', '经': '經', '络': '絡', '盖': '蓋', '会': '會', '学': '學', '艺': '藝', '医': '醫', '装': '裝', '结': '結', '网': '網', '渔': '漁', '猎': '獵', '亲': '親', '进': '進', '扫': '掃', '绘': '繪', '齐': '齊', '斋': '齋', '庙': '廟', '灶': '竈', '谢': '謝', '问': '問', '婿': '壻', '归': '歸', '宁': '寧', '坟': '墳', '寿': '壽', '坏': '壞', '补': '補', '厕': '廁', '仓': '倉', '涂': '塗', '桥': '橋', '筑': '築', '饰': '飾', '墙': '牆', '买': '買', '车': '車', '产': '產', '雇': '僱', '佣': '傭', '货': '貨', '机': '機', '械': '械', '酝': '醞', '酿': '釀', '铸': '鑄', '针': '針', '库': '庫', '疗': '療', '诸': '諸', '馀': '餘', '丧': '喪', '断': '斷', '蚁': '蟻', '户': '戶', '炉': '爐', '栖': '棲', '厨': '廚', '胜': '勝', '负': '負', '灭': '滅', '龙': '龍', '鸡': '雞', '猪': '豬', '乌': '烏', '双': '雙', '宫': '宮', '惊': '驚', '蛰': '蟄', '满': '滿', '处': '處', '时': '時', '气': '氣', '后': '後', '灾': '災', '复': '復', '虚': '虛', '贼': '賊', '败': '敗', '仪': '儀', '祸': '禍', '临': '臨', '阴': '陰', '阳': '陽', '圣': '聖', '冲': '沖', '绝': '絕', '岁': '歲', '伤': '傷', '杀': '殺', '黄': '黃', '节': '節', '树': '樹', '国': '國', '万': '萬', '长': '長', '华': '華', '为': '為', '电': '電', '声': '聲', '冻': '凍', '虫': '蟲', '鱼': '魚', '鹰': '鷹', '来': '來', '润': '潤', '凉': '涼', '麦': '麥', '温': '溫', '收': '收', '闭': '閉', '闰': '閏', '谷': '穀' };
+            if (Array.isArray(input)) {
+                return input.map(item => item.split('').map(char => s2tMap[char] || char).join(''));
+            }
+            return input.split('').map(char => s2tMap[char] || char).join('');
+        }
+
+        /**
+         * 設置時鐘指針
+         */
+        function setClock() {
+            const now = new Date();
+            const seconds = now.getSeconds() + now.getMilliseconds() / 1000;
+            const minutes = now.getMinutes() + seconds / 60;
+            const hours = now.getHours() % 12 + minutes / 60;
+
+            const secondDeg = (seconds / 60) * 360;
+            const minuteDeg = (minutes / 60) * 360;
+            const hourDeg = (hours / 12) * 360;
+
+            dom.secondHand.style.transform = `rotate(${secondDeg}deg)`;
+            dom.minuteHand.style.transform = `rotate(${minuteDeg}deg)`;
+            dom.hourHand.style.transform = `rotate(${hourDeg}deg)`;
+        }
+
+        /**
+         * 動態生成時鐘的數字和刻度
+         */
+        function createClockFace() {
+            dom.ticksContainer.innerHTML = '';
+            dom.numbersContainer.innerHTML = '';
+            for (let i = 1; i <= 60; i++) {
+                const isHour = i % 5 === 0;
+                const rotation = i * 6;
+                const tickWrapper = document.createElement('div');
+                tickWrapper.className = 'tick-wrapper';
+                tickWrapper.style.transform = `rotate(${rotation}deg)`;
+                const tick = document.createElement('div');
+                tick.className = isHour ? 'tick tick-hour' : 'tick tick-minute';
+                tickWrapper.appendChild(tick);
+                dom.ticksContainer.appendChild(tickWrapper);
+                if (isHour) {
+                    const numberDiv = document.createElement('div');
+                    const hour = i / 5;
+                    numberDiv.className = 'number';
+                    numberDiv.style.setProperty('--rotation', `${rotation}deg`);
+                    numberDiv.innerHTML = `<div>${hour}</div>`;
+                    dom.numbersContainer.appendChild(numberDiv);
+                }
+            }
+        }
+        
+        /**
+         * 獲取指定年份的節假日
+         */
+        function getHolidaysForYear(year) {
+            if (yearlyDataCache.year === year && yearlyDataCache.holidays.length > 0) return yearlyDataCache.holidays;
+            const holidays = [];
+            const fixedHolidays = [ { name: '元旦', m: 0, d: 1 }, { name: '和平紀念日', m: 1, d: 28 }, { name: '兒童節', m: 3, d: 4 }, { name: '勞動節', m: 4, d: 1 }, { name: '國慶日', m: 9, d: 10 }];
+			fixedHolidays.forEach(h => holidays.push({ name: h.name, date: new Date(year, h.m, h.d) }));
+			const lunarHolidays = [{m:1,d:1,n:'農曆新年'}, {m:1,d:15,n:'元宵節'}, {m:5,d:5,n:'端午節'}, {m:7,d:7,n:'七夕'}, {m:8,d:15,n:'中秋節'}, {m:12,d:8,n:'臘八節'}];
+			lunarHolidays.forEach(lh => { const solarDate = Lunar.fromYmd(year, lh.m, lh.d).getSolar(); holidays.push({ name: lh.n, date: new Date(solarDate.getYear(), solarDate.getMonth() - 1, solarDate.getDay()) }); });
+			const lunarNewYearSolar = Lunar.fromYmd(year, 1, 1).getSolar();
+			holidays.push({ name: '除夕', date: new Date(lunarNewYearSolar.getYear(), lunarNewYearSolar.getMonth() - 1, lunarNewYearSolar.getDay() - 1) });
+			const mayFirst = new Date(year, 4, 1); const mothersDay = new Date(year, 4, 1 + (7 - mayFirst.getDay() + 7) % 7 + 7); holidays.push({ name: '母親節', date: mothersDay });
+            yearlyDataCache.holidays = holidays.sort((a, b) => a.date.getTime() - b.date.getTime());
+            return yearlyDataCache.holidays;
+        }
+
+        /**
+         * 獲取指定年份的節氣
+         */
+        function getJieqiForYear(year) {
+             if (yearlyDataCache.year === year && yearlyDataCache.jieqi.length > 0) return yearlyDataCache.jieqi;
+             const jieqiPinyinMap = {'LI_CHUN':'立春','YU_SHUI':'雨水','JING_ZHE':'驚蟄','CHUN_FEN':'春分','QING_MING':'清明','GU_YU':'穀雨','LI_XIA':'立夏','XIAO_MAN':'小滿','MANG_ZHONG':'芒種','XIA_ZHI':'夏至','XIAO_SHU':'小暑','DA_SHU':'大暑','LI_QIU':'立秋','CHU_SHU':'處暑','BAI_LU':'白露','QIU_FEN':'秋分','HAN_LU':'寒露','SHUANG_JIANG':'霜降','LI_DONG':'立冬','XIAO_XUE':'小雪','DA_XUE':'大雪','DONG_ZHI':'冬至','XIAO_HAN':'小寒','DA_HAN':'大寒'};
+             const jieqiTable = Lunar.fromYmd(year, 1, 1).getJieQiTable();
+             yearlyDataCache.jieqi = Object.entries(jieqiTable).map(([name, dateStr]) => ({ name: s2t(jieqiPinyinMap[name] || name), date: new Date(dateStr) })).sort((a, b) => a.date.getTime() - b.date.getTime());
+             return yearlyDataCache.jieqi;
+        }
+        
+        /**
+         * 創建主畫面日曆 (已更新為新樣式)
+         */
+        function createMainCalendar() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth();
+            const today = now.getDate();
+            const rocYear = year - 1911;
+
+            dom.calendarHeader.textContent = `${year}/${rocYear}年 ${month + 1}月`;
+
+            // 清空容器
+            dom.mainCalendarWeekdays.innerHTML = '';
+            dom.calendarDays.innerHTML = '';
+
+            // 填充星期標題
+            ['日', '一', '二', '三', '四', '五', '六'].forEach(day => {
+                const el = document.createElement('div');
+                el.textContent = day;
+                dom.mainCalendarWeekdays.appendChild(el);
+            });
+            
+            // 獲取當月事件數據
+            if (yearlyDataCache.year !== year) {
+                yearlyDataCache = { year: year, holidays: getHolidaysForYear(year), jieqi: getJieqiForYear(year) };
+            }
+            const holidays = yearlyDataCache.holidays;
+            const jieqi = yearlyDataCache.jieqi;
+
+            const firstDayOfMonth = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            // 填充空白儲存格
+            for (let i = 0; i < firstDayOfMonth; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day-popup';
+                cell.style.visibility = 'hidden'; // 使用 visibility 保持佔位
+                dom.calendarDays.appendChild(cell);
+            }
+
+            // 填充日期儲存格
+            for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day-popup';
+                const date = new Date(year, month, dayNum);
+                cell.dataset.date = date.toISOString();
+                cell.onclick = () => showDateDetails(date);
+
+                const lunar = Lunar.fromDate(date);
+                // [修正] 只獲取農曆日期，節日和節氣分開處理
+                const lunarDayText = lunar.getDay() === 1 ? s2t(lunar.getMonthInChinese()) + '月' : s2t(lunar.getDayInChinese());
+                cell.innerHTML = `<div class="gregorian-day">${dayNum}</div><div class="lunar-day">${lunarDayText}</div>`;
+                
+                if (dayNum === today) {
+                    cell.classList.add('is-today');
+                }
+                
+                // [修正] 檢查並添加節日和節氣標示，使用 toDateString() 進行精確比較
+                const holiday = holidays.find(h => h.date.toDateString() === date.toDateString());
+                if (holiday) cell.innerHTML += `<span class="event-indicator holiday">${holiday.name}</span>`;
+                const jq = jieqi.find(j => j.date.toDateString() === date.toDateString());
+                if (jq) cell.innerHTML += `<span class="event-indicator jieqi">${jq.name}</span>`;
+
+                dom.calendarDays.appendChild(cell);
+            }
+        }
+
+
+        /**
+         * 生成月曆彈窗
+         */
+        function generateCalendarPopup(year, month) {
+            dom.calendarGrid.innerHTML = '';
+            dom.popupCalendarWeekdays.innerHTML = '';
+            ['日', '一', '二', '三', '四', '五', '六'].forEach(day => { const el = document.createElement('div'); el.textContent = day; dom.popupCalendarWeekdays.appendChild(el); });
+            dom.calendarMonthYear.textContent = `${year}年 ${month + 1}月`;
+            dom.calendarMonthYear.dataset.year = year;
+            dom.calendarMonthYear.dataset.month = month;
+
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const today = new Date();
+            
+            if (yearlyDataCache.year !== year) {
+                yearlyDataCache = { year: year, holidays: getHolidaysForYear(year), jieqi: getJieqiForYear(year) };
+            }
+            const holidays = yearlyDataCache.holidays;
+            const jieqi = yearlyDataCache.jieqi;
+
+            for (let i = 0; i < firstDay; i++) { 
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day-popup other-month';
+                dom.calendarGrid.appendChild(cell);
+            }
+
+            for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day-popup';
+                const date = new Date(year, month, dayNum);
+                cell.dataset.date = date.toISOString();
+                cell.onclick = () => showDateDetails(date);
+
+                const lunar = Lunar.fromDate(date);
+                const lunarDayText = lunar.getDay() === 1 ? s2t(lunar.getMonthInChinese()) + '月' : s2t(lunar.getDayInChinese());
+                cell.innerHTML = `<div class="gregorian-day">${dayNum}</div><div class="lunar-day">${lunarDayText}</div>`;
+                if (today.getFullYear() === year && today.getMonth() === month && dayNum === today.getDate()) { cell.classList.add('is-today'); }
+                
+                const holiday = holidays.find(h => h.date.toDateString() === date.toDateString());
+                if (holiday) cell.innerHTML += `<span class="event-indicator holiday">${holiday.name}</span>`;
+                const jq = jieqi.find(j => j.date.toDateString() === date.toDateString());
+                if (jq) cell.innerHTML += `<span class="event-indicator jieqi">${jq.name}</span>`;
+                
+                dom.calendarGrid.appendChild(cell);
+            }
+
+            const remainingCells = 42 - (firstDay + daysInMonth);
+            for (let i = 0; i < remainingCells; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day-popup other-month';
+                dom.calendarGrid.appendChild(cell);
+            }
+        }
+
+        /**
+         * 生成年曆彈窗
+         */
+        function generateYearCalendar(year) {
+            dom.yearlyCalendarGrid.innerHTML = '';
+            dom.yearlyCalendarTitle.textContent = `${year}年`;
+            const today = new Date();
+
+            if (yearlyDataCache.year !== year) {
+                yearlyDataCache = { year: year, holidays: getHolidaysForYear(year), jieqi: getJieqiForYear(year) };
+            }
+            const holidays = yearlyDataCache.holidays;
+            const jieqi = yearlyDataCache.jieqi;
+            const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+
+            for (let month = 0; month < 12; month++) {
+                const monthContainer = document.createElement('div');
+                monthContainer.className = 'yearly-month-container';
+                const monthHeader = document.createElement('div');
+                monthHeader.className = 'yearly-month-header';
+                monthHeader.textContent = `${month + 1}月`;
+                monthHeader.onclick = () => {
+                    dom.yearlyCalendarModal.classList.remove('is-active');
+                    calendarDate = new Date(year, month, 1);
+                    generateCalendarPopup(year, month);
+                    dom.calendarModal.classList.add('is-active');
+                };
+                monthContainer.appendChild(monthHeader);
+
+                const weekdaysDiv = document.createElement('div');
+                weekdaysDiv.className = 'yearly-weekdays';
+                weekdays.forEach(day => { const el = document.createElement('div'); el.textContent = day; weekdaysDiv.appendChild(el); });
+                monthContainer.appendChild(weekdaysDiv);
+
+                const dayGrid = document.createElement('div');
+                dayGrid.className = 'yearly-day-grid';
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                for (let i = 0; i < firstDay; i++) { dayGrid.appendChild(document.createElement('div')); }
+                for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'yearly-day';
+                    const date = new Date(year, month, dayNum);
+                    cell.dataset.date = date.toISOString();
+                    cell.onclick = () => showDateDetails(date);
+                    cell.textContent = dayNum;
+                    if (today.getFullYear() === year && today.getMonth() === month && dayNum === today.getDate()) { cell.classList.add('is-today'); }
+                    
+                    const holiday = holidays.find(h => h.date.toDateString() === date.toDateString());
+                    const jq = jieqi.find(j => j.date.toDateString() === date.toDateString());
+                    if(holiday || jq) {
+                        const indicators = document.createElement('div');
+                        indicators.className = 'yearly-indicators';
+                        if(holiday) indicators.innerHTML += '<span class="dot holiday"></span>';
+                        if(jq) indicators.innerHTML += '<span class="dot jieqi"></span>';
+                        cell.appendChild(indicators);
+                    }
+                    dayGrid.appendChild(cell);
+                }
+                monthContainer.appendChild(dayGrid);
+                dom.yearlyCalendarGrid.appendChild(monthContainer);
+            }
+        }
+
+        /**
+         * 顯示更詳細的日期資訊
+         */
+        function showDateDetails(date) {
+            date.setHours(12, 0, 0, 0);
+            const year = date.getFullYear();
+            const isToday = date.toDateString() === new Date().toDateString();
+            const lunar = Solar.fromDate(date).getLunar();
+
+            const dayYi = s2t(lunar.getDayYi()).join('、') || '無';
+            const dayJi = s2t(lunar.getDayJi()).join('、') || '無';
+            const lunarYearText = `${s2t(lunar.getYearInGanZhi())}${s2t(lunar.getYearShengXiao())}年`;
+            const lunarDateText = `${s2t(lunar.getMonthInChinese())}月${s2t(lunar.getDayInChinese())}`;
+            
+            dom.dateDetailsModalTitle.textContent = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+            
+            const holidaysForYear = getHolidaysForYear(year);
+            const jieqiForYear = getJieqiForYear(year);
+            const currentJieqi = jieqiForYear.find(jq => jq.date.toDateString() === date.toDateString());
+            const currentHoliday = holidaysForYear.find(h => h.date.toDateString() === date.toDateString());
+            const nextJieqi = jieqiForYear.find(jq => jq.date > date);
+            const nextHoliday = holidaysForYear.find(h => h.date > date);
+
+            let eventHtml = '';
+            if (currentJieqi) { eventHtml += `<p>${isToday ? '今天是' : '這天是'} <strong>${currentJieqi.name}</strong>！</p>`; }
+            if (currentHoliday) { eventHtml += `<p>${isToday ? '今天是' : '這天是'} <strong>${currentHoliday.name}</strong>！</p>`; }
+            
+            let countdownHtml = '';
+            if (nextJieqi) { const daysUntil = Math.ceil((nextJieqi.date - date) / 86400000); countdownHtml += `<p>距離下個節氣 <strong>${nextJieqi.name}</strong> 還有 ${daysUntil} 天。</p>`; }
+            if (nextHoliday) { const daysUntil = Math.ceil((nextHoliday.date - date) / 86400000); countdownHtml += `<p>距離下個節日 <strong>${nextHoliday.name}</strong> 還有 ${daysUntil} 天。</p>`; }
+            if (countdownHtml) { eventHtml += `<div class="countdown-section">${countdownHtml}</div>`; }
+
+            const detailsHtml = `<p><strong>公曆：</strong>${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日</p><p><strong>農曆：</strong>${lunarYearText} ${lunarDateText}</p><div class="yi-ji-grid"><strong>宜：</strong><span>${dayYi}</span><strong>忌：</strong><span>${dayJi}</span></div>${eventHtml}<p style="margin-top: 15px; font-size: 0.9em; color: #aaa;">宜忌僅供參考，請順心而為。</p>`;
+            dom.dateDetailsModalContent.innerHTML = detailsHtml;
+            dom.dateDetailsModal.classList.add('is-active');
+        }
+
+        /**
+         * 設定相關功能
+         */
+        function saveSettings() { try { localStorage.setItem('clockCalendarSettings', JSON.stringify(settings)); } catch (e) { console.error("儲存設定失敗:", e); } }
+        
+        function applySettings() {
+            for (const key in settings) {
+                if (key.toLowerCase().includes('color')) {
+                    const cssVarName = '--' + key.replace(/([A-Z])/g, '-$1').toLowerCase();
+                    document.documentElement.style.setProperty(cssVarName, settings[key]);
+                }
+            }
+            document.documentElement.style.setProperty('--background-color', settings.backgroundColor);
+            setupMovementTimer();
+        }
+
+        function loadSettings() {
+            try {
+                const savedSettings = localStorage.getItem('clockCalendarSettings');
+                if (savedSettings) {
+                    settings = { ...defaultSettings, ...JSON.parse(savedSettings) };
+                }
+            } catch (e) {
+                console.error("讀取設定失敗:", e);
+                settings = { ...defaultSettings };
+            }
+            applySettings();
+        }
+
+        function updateSettingsModalUI() {
+            for (const key in settings) {
+                const element = document.getElementById(key);
+                if (element) {
+                    if (element.type === 'checkbox') {
+                        element.checked = settings[key];
+                    } else if (element.type === 'color' || element.tagName === 'SELECT') {
+                        element.value = settings[key];
+                    }
+                }
+            }
+        }
+
+        function handleSettingChange(event) {
+            const key = event.target.id;
+            const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+            settings[key] = value;
+            applySettings();
+            saveSettings();
+        }
+        
+        function getRandomColor() { return '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'); }
+
+        function setRandomColors() {
+            for (const key in settings) {
+                if (key.toLowerCase().includes('color')) {
+                    settings[key] = getRandomColor();
+                }
+            }
+            applySettings();
+            saveSettings();
+            updateSettingsModalUI();
+        }
+
+        function restoreDefaults() {
+            const currentMovementSetting = settings.enableMovement;
+            settings = { ...defaultSettings };
+            settings.enableMovement = currentMovementSetting;
+            
+            applySettings();
+            saveSettings();
+            updateSettingsModalUI();
+        }
+
+        /**
+         * 飄移功能
+         */
+        function moveRandomly() {
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            const containerRect = dom.movableWrapper.getBoundingClientRect();
+
+            const maxTranslateX = (viewportWidth - containerRect.width) / 2;
+            const maxTranslateY = (viewportHeight - containerRect.height) / 2;
+
+            const newX = Math.random() * maxTranslateX * (Math.random() > 0.5 ? 1 : -1);
+            const newY = Math.random() * maxTranslateY * (Math.random() > 0.5 ? 1 : -1);
+            
+            dom.movableWrapper.style.transform = `translate(${newX}px, ${newY}px)`;
+        }
+
+        function resetPosition() {
+            dom.movableWrapper.style.transform = 'translate(0, 0)';
+        }
+
+        function setupMovementTimer() {
+            clearInterval(movementTimer);
+            if (settings.enableMovement) {
+                const intervalMs = (parseInt(settings.movementIntervalMinutes) * 60 + parseInt(settings.movementIntervalSeconds)) * 1000;
+                if (intervalMs > 0) {
+                    moveRandomly();
+                    movementTimer = setInterval(moveRandomly, intervalMs);
+                }
+            } else {
+                resetPosition();
+            }
+        }
+
+        /**
+         * 全螢幕功能
+         */
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.warn(`無法進入全螢幕模式: ${err.message}`);
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+        
+        /**
+         * 填充時間選擇器
+         */
+        function populateTimeSelectors(minuteId, secondId) {
+            const minuteSelect = document.getElementById(minuteId);
+            const secondSelect = document.getElementById(secondId);
+            for (let i = 0; i <= 59; i++) {
+                if (minuteSelect) { const option = document.createElement('option'); option.value = i; option.textContent = i; minuteSelect.appendChild(option); }
+                if (secondSelect) { const option = document.createElement('option'); option.value = i; option.textContent = i; secondSelect.appendChild(option); }
+            }
+        }
+
+        /**
+         * 初始化所有功能和事件監聽
+         */
+        function init() {
+            populateTimeSelectors('movementIntervalMinutes', 'movementIntervalSeconds');
+            loadSettings();
+            updateSettingsModalUI();
+
+            setClock();
+            createClockFace();
+            createMainCalendar();
+            
+            setInterval(setClock, 10);
+            setInterval(() => {
+                const todayCell = document.querySelector('.is-today .gregorian-day');
+                if (new Date().getDate() !== parseInt(todayCell?.textContent || '0')) {
+                    createMainCalendar();
+                }
+            }, 60000);
+
+            // 彈窗開關
+            dom.calendarHeader.onclick = () => {
+                calendarDate = new Date();
+                generateCalendarPopup(calendarDate.getFullYear(), calendarDate.getMonth());
+                dom.calendarModal.classList.add('is-active');
+            };
+            dom.calendarMonthYear.onclick = () => {
+                dom.calendarModal.classList.remove('is-active');
+                yearlyCalendarDate = new Date(parseInt(dom.calendarMonthYear.dataset.year), parseInt(dom.calendarMonthYear.dataset.month));
+                generateYearCalendar(yearlyCalendarDate.getFullYear());
+                dom.yearlyCalendarModal.classList.add('is-active');
+            };
+            
+            // 關閉按鈕
+            document.getElementById('closeCalendarBtn').onclick = () => dom.calendarModal.classList.remove('is-active');
+            document.getElementById('closeYearlyCalendarBtn').onclick = () => dom.yearlyCalendarModal.classList.remove('is-active');
+            document.getElementById('closeDetailsBtn').onclick = () => dom.dateDetailsModal.classList.remove('is-active');
+            document.getElementById('doneSettingsBtn').onclick = () => dom.settingsModal.classList.remove('is-active');
+            
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.addEventListener('click', (event) => {
+                    if (event.target === modal) {
+                        modal.classList.remove('is-active');
+                    }
+                });
+            });
+
+            // 月曆導航
+            document.getElementById('prevMonthBtn').onclick = () => { calendarDate.setMonth(calendarDate.getMonth() - 1); generateCalendarPopup(calendarDate.getFullYear(), calendarDate.getMonth()); };
+            document.getElementById('nextMonthBtn').onclick = () => { calendarDate.setMonth(calendarDate.getMonth() + 1); generateCalendarPopup(calendarDate.getFullYear(), calendarDate.getMonth()); };
+            document.getElementById('todayCalendarBtn').onclick = () => { calendarDate = new Date(); generateCalendarPopup(calendarDate.getFullYear(), calendarDate.getMonth()); };
+            
+            // 年曆導航
+            document.getElementById('prevYearBtn').onclick = () => { yearlyCalendarDate.setFullYear(yearlyCalendarDate.getFullYear() - 1); generateYearCalendar(yearlyCalendarDate.getFullYear()); };
+            document.getElementById('nextYearBtn').onclick = () => { yearlyCalendarDate.setFullYear(yearlyCalendarDate.getFullYear() + 1); generateYearCalendar(yearlyCalendarDate.getFullYear()); };
+            document.getElementById('todayYearlyBtn').onclick = () => { yearlyCalendarDate = new Date(); generateYearCalendar(yearlyCalendarDate.getFullYear()); };
+        
+            // 設定事件監聽
+            document.getElementById('settings-icon').onclick = () => dom.settingsModal.classList.add('is-active');
+            document.getElementById('fullscreen-icon').onclick = toggleFullScreen;
+            document.getElementById('restoreDefaultsBtn').onclick = restoreDefaults;
+            document.getElementById('randomColorsBtn').onclick = setRandomColors;
+            dom.settingsModal.querySelectorAll('input, select').forEach(input => {
+                input.addEventListener('change', handleSettingChange);
+                if (input.type === 'color') {
+                    input.addEventListener('input', handleSettingChange);
+                }
+            });
+
+            // 閒置隱藏圖示
+            let inactivityTimer;
+            const controlIcons = document.querySelectorAll('.control-icon');
+            function showIcons() {
+                controlIcons.forEach(icon => icon.style.opacity = '0.5');
+                clearTimeout(inactivityTimer);
+                inactivityTimer = setTimeout(() => controlIcons.forEach(icon => icon.style.opacity = '0'), 3000);
+            }
+            document.addEventListener('mousemove', showIcons);
+            document.addEventListener('touchstart', showIcons);
+            showIcons();
+        }
+
+        init();
+    </script>
+</body>
+</html>
