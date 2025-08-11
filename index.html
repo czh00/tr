@@ -969,7 +969,10 @@
             showIcons();
         }
 
-        init();
+        // [修正] 使用 window.onload 來確保所有資源 (包含 lunar.js) 都載入完成後再執行 init()
+        window.onload = function() {
+            init();
+        };
     </script>
 </body>
 </html>
