@@ -128,7 +128,7 @@
             margin-top: -1vw;
             cursor: pointer;
             transition: filter 0.3s;
-            /* [新增] "容器樣式 */
+            /* [新增] 跑馬燈容器樣式 */
             overflow: hidden;
             white-space: nowrap;
             position: relative;
@@ -137,7 +137,7 @@
             filter: brightness(1.2);
         }
 
-        /* --- [新增] 天氣" --- */
+        /* --- [修改] 天氣跑馬燈 --- */
         .weather-marquee-inner {
             display: flex;
             width: fit-content;
@@ -146,8 +146,8 @@
         .weather-marquee-inner.scrolling {
             animation: marquee linear infinite;
         }
-        .weather-marquee-content-duplicate {
-            padding-left: 4rem;
+        .weather-marquee-content {
+            padding-right: 4rem; /* [修改] 增加右邊間距，讓兩個重複內容分開 */
         }
         @keyframes marquee {
             from { transform: translateX(0); }
@@ -249,9 +249,9 @@
         .settings-column h3 { text-align: center; margin-top: 0; margin-bottom: 15px; color: var(--highlight-color); }
         .interval-selector-group { display: flex; align-items: center; gap: 5px; margin-left: auto; }
         .interval-select { background-color: #555; color: white; border: 1px solid #888; border-radius: 4px; padding: 5px; font-size: 0.9em; max-width: 80px; }
-        /* [修改] 縮小地區選單寬度 */
+        /* [修改] 再次縮小地區選單寬度 */
         .location-input-group .interval-select {
-            max-width: 95px;
+            max-width: 78px;
         }
         .interval-select-label { color: #ccc; font-size: 0.9em; margin-left: 2px; margin-right: 5px; }
         .location-input-group { display: flex; align-items: center; gap: 5px; flex-grow: 1; }
@@ -279,11 +279,11 @@
                 <h2 class="calendar-header" id="calendar-header"></h2>
                 <div class="calendar-weekdays" id="main-calendar-weekdays"></div>
                 <div class="calendar-grid-popup" id="calendar-days"></div>
-                <!-- [修改] 天氣顯示改為"結構 -->
+                <!-- [修改] 天氣顯示改為跑馬燈結構 -->
                 <div id="weather-display" class="weather-display">
                     <div class="weather-marquee-inner">
                         <span class="weather-marquee-content"></span>
-                        <span class="weather-marquee-content-duplicate"></span>
+                        <span class="weather-marquee-content weather-marquee-content-duplicate" aria-hidden="true"></span>
                     </div>
                 </div>
             </div>
@@ -660,42 +660,39 @@
         async function fetchWeather(lat, lon) { const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=8`; try { const response = await fetch(url); if (!response.ok) throw new Error('天氣API請求失敗'); return await response.json(); } catch (error) { console.error("獲取天氣失敗:", error); return null; } }
         function getChineseLocationName(englishName) { for (const countyName in taiwanLocations) { const countyData = taiwanLocations[countyName]; for (const districtName in countyData.districts) { if (countyData.districts[districtName].toLowerCase() === englishName.toLowerCase()) { return countyName === districtName ? countyName : districtName; } } } return englishName; }
         
-        // [新增] 檢查天氣文字是否需要"
+        // [修改] 檢查天氣文字是否需要跑馬燈
         function checkWeatherMarquee() {
             const container = document.getElementById('weather-display');
             const inner = container.querySelector('.weather-marquee-inner');
-            const content = container.querySelector('.weather-marquee-content');
-            const duplicate = container.querySelector('.weather-marquee-content-duplicate');
-            if (!container || !inner || !content || !duplicate) return;
+            const content = container.querySelector('.weather-marquee-content:first-child');
+            if (!container || !inner || !content) return;
 
             requestAnimationFrame(() => {
                 const contentWidth = content.scrollWidth;
                 const containerWidth = container.offsetWidth;
 
                 if (contentWidth > containerWidth) {
-                    duplicate.innerHTML = content.innerHTML;
                     inner.classList.add('scrolling');
-                    // 速度: 每秒40像素
-                    const duration = contentWidth / 40;
+                    const blockWidth = content.offsetWidth;
+                    const duration = blockWidth / 40; // 速度: 40px/s
                     inner.style.animationDuration = `${duration}s`;
                 } else {
-                    duplicate.innerHTML = '';
                     inner.classList.remove('scrolling');
-                    inner.style.animationDuration = ''; // 重置動畫時間
+                    inner.style.animationDuration = '';
                 }
             });
         }
         
-        // [新增] 統一設定天氣文字的輔助函式
+        // [修改] 統一設定天氣文字的輔助函式
         function setWeatherText(htmlContent) {
-            const contentSpan = dom.weatherDisplay.querySelector('.weather-marquee-content');
-            if (contentSpan) {
-                contentSpan.innerHTML = htmlContent;
+            const contentSpans = dom.weatherDisplay.querySelectorAll('.weather-marquee-content');
+            if (contentSpans.length > 0) {
+                contentSpans.forEach(span => span.innerHTML = htmlContent);
                 checkWeatherMarquee();
             }
         }
 
-        // [修改] 更新天氣顯示以使用"
+        // [修改] 更新天氣顯示以使用跑馬燈
         function updateWeatherDisplay() {
             if (!settings.showWeather || !weatherDataCache) {
                 setWeatherText('無法取得天氣資訊');
@@ -980,7 +977,7 @@
             document.addEventListener('touchstart', showIcons);
             showIcons();
             
-            // [新增] 視窗大小改變時重新檢查"
+            // [新增] 視窗大小改變時重新檢查跑馬燈
             window.addEventListener('resize', checkWeatherMarquee);
         }
 
