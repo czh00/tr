@@ -121,16 +121,37 @@
         }
         .calendar-header:hover { filter: brightness(1.2); }
 
-        /* --- [新增] 日曆內的天氣顯示 --- */
+        /* --- [修改] 日曆內的天氣顯示 --- */
         .weather-display {
             font-size: clamp(1.5rem, 5vw, 2.5rem); /* 與年月標題相同大小 */
             font-weight: bold;
             margin-top: -1vw;
             cursor: pointer;
             transition: filter 0.3s;
+            /* [新增] "容器樣式 */
+            overflow: hidden;
+            white-space: nowrap;
+            position: relative;
         }
         .weather-display:hover {
             filter: brightness(1.2);
+        }
+
+        /* --- [新增] 天氣" --- */
+        .weather-marquee-inner {
+            display: flex;
+            width: fit-content;
+            will-change: transform;
+        }
+        .weather-marquee-inner.scrolling {
+            animation: marquee linear infinite;
+        }
+        .weather-marquee-content-duplicate {
+            padding-left: 4rem;
+        }
+        @keyframes marquee {
+            from { transform: translateX(0); }
+            to { transform: translateX(-50%); }
         }
 
         /* --- 彈出視窗 (Modal) 通用樣式 --- */
@@ -222,12 +243,16 @@
 		input:checked + .slider:before { transform: translateX(26px); }
         .setting-item input[type="color"] { width: 40px; height: 34px; border: none; padding: 0; background: none; cursor: pointer; flex-shrink: 0; }
         /* [新增] 文字輸入框樣式 */
-        .setting-item input[type="text"] { background-color: #555; color: white; border: 1px solid #888; border-radius: 4px; padding: 5px; font-size: 0.9em; max-width: 100px; }
+        .setting-item input[type="text"] { background-color: #555; color: white; border: 1px solid #888; border-radius: 4px; padding: 5px; font-size: 0.9em; max-width: 80px; }
         .settings-columns-container { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-around; width: 100%; }
         .settings-column { flex: 1; min-width: 180px; padding: 10px; border: 1px solid #555; border-radius: 8px; background-color: #333; }
         .settings-column h3 { text-align: center; margin-top: 0; margin-bottom: 15px; color: var(--highlight-color); }
         .interval-selector-group { display: flex; align-items: center; gap: 5px; margin-left: auto; }
-        .interval-select { background-color: #555; color: white; border: 1px solid #888; border-radius: 4px; padding: 5px; font-size: 0.9em; }
+        .interval-select { background-color: #555; color: white; border: 1px solid #888; border-radius: 4px; padding: 5px; font-size: 0.9em; max-width: 80px; }
+        /* [修改] 縮小地區選單寬度 */
+        .location-input-group .interval-select {
+            max-width: 95px;
+        }
         .interval-select-label { color: #ccc; font-size: 0.9em; margin-left: 2px; margin-right: 5px; }
         .location-input-group { display: flex; align-items: center; gap: 5px; flex-grow: 1; }
         .location-controls-group { display: flex; align-items: center; gap: 5px; margin-left: auto; }
@@ -254,8 +279,13 @@
                 <h2 class="calendar-header" id="calendar-header"></h2>
                 <div class="calendar-weekdays" id="main-calendar-weekdays"></div>
                 <div class="calendar-grid-popup" id="calendar-days"></div>
-                <!-- [修改] 天氣顯示移至此處 -->
-                <div id="weather-display" class="weather-display"></div>
+                <!-- [修改] 天氣顯示改為"結構 -->
+                <div id="weather-display" class="weather-display">
+                    <div class="weather-marquee-inner">
+                        <span class="weather-marquee-content"></span>
+                        <span class="weather-marquee-content-duplicate"></span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -358,9 +388,9 @@
                 <label for="showWeatherLocation">天氣地區</label>
                 <!-- [修改] 新增手動輸入框 -->
                 <div class="location-input-group">
-                    <select id="countySelect" class="interval-select" style="max-width: 85px;"></select>
-                    <select id="districtSelect" class="interval-select" style="max-width: 85px;"></select>
-                    <input id="weatherLocation" type="text" class="interval-select" title="可手動輸入英文地名" placeholder="手動輸入(英文)" style="width: 120px; margin-left: 5px;">
+                    <select id="countySelect" class="interval-select"></select>
+                    <select id="districtSelect" class="interval-select"></select>
+                    <input id="weatherLocation" type="text" class="interval-select" title="可手動輸入英文地名" placeholder="手動輸入(英文)">
                 </div>
                 <div class="location-controls-group">
                     <button id="useCurrentLocationBtn" title="使用目前位置">
@@ -630,16 +660,54 @@
         async function fetchWeather(lat, lon) { const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=8`; try { const response = await fetch(url); if (!response.ok) throw new Error('天氣API請求失敗'); return await response.json(); } catch (error) { console.error("獲取天氣失敗:", error); return null; } }
         function getChineseLocationName(englishName) { for (const countyName in taiwanLocations) { const countyData = taiwanLocations[countyName]; for (const districtName in countyData.districts) { if (countyData.districts[districtName].toLowerCase() === englishName.toLowerCase()) { return countyName === districtName ? countyName : districtName; } } } return englishName; }
         
+        // [新增] 檢查天氣文字是否需要"
+        function checkWeatherMarquee() {
+            const container = document.getElementById('weather-display');
+            const inner = container.querySelector('.weather-marquee-inner');
+            const content = container.querySelector('.weather-marquee-content');
+            const duplicate = container.querySelector('.weather-marquee-content-duplicate');
+            if (!container || !inner || !content || !duplicate) return;
+
+            requestAnimationFrame(() => {
+                const contentWidth = content.scrollWidth;
+                const containerWidth = container.offsetWidth;
+
+                if (contentWidth > containerWidth) {
+                    duplicate.innerHTML = content.innerHTML;
+                    inner.classList.add('scrolling');
+                    // 速度: 每秒40像素
+                    const duration = contentWidth / 40;
+                    inner.style.animationDuration = `${duration}s`;
+                } else {
+                    duplicate.innerHTML = '';
+                    inner.classList.remove('scrolling');
+                    inner.style.animationDuration = ''; // 重置動畫時間
+                }
+            });
+        }
+        
+        // [新增] 統一設定天氣文字的輔助函式
+        function setWeatherText(htmlContent) {
+            const contentSpan = dom.weatherDisplay.querySelector('.weather-marquee-content');
+            if (contentSpan) {
+                contentSpan.innerHTML = htmlContent;
+                checkWeatherMarquee();
+            }
+        }
+
+        // [修改] 更新天氣顯示以使用"
         function updateWeatherDisplay() {
             if (!settings.showWeather || !weatherDataCache) {
-                dom.weatherDisplay.innerHTML = '無法取得天氣資訊'; return;
+                setWeatherText('無法取得天氣資訊');
+                return;
             }
             const { desc, emoji } = getWeatherDescriptionAndEmoji(weatherDataCache.current.weather_code);
             const temp = Math.round(weatherDataCache.current.temperature_2m);
             const displayName = getChineseLocationName(settings.weatherLocation);
             const locationPart = settings.showWeatherLocation ? `<span style="color: ${settings.weatherLocationColor};">${displayName}</span>` : '';
             const weatherInfoPart = `<span style="color: ${settings.weatherColor};">${desc}${emoji}${temp}°C</span>`;
-            dom.weatherDisplay.innerHTML = `${locationPart} ${weatherInfoPart}`;
+            
+            setWeatherText(`${locationPart} ${weatherInfoPart}`);
         }
 
         async function updateWeather() {
@@ -878,9 +946,10 @@
             
             dom.weatherDisplay.onclick = showWeatherForecast;
             
+            // [修改] 定位功能改用 setWeatherText 輔助函式
             document.getElementById('useCurrentLocationBtn').addEventListener('click', () => { 
                 if (navigator.geolocation) { 
-                    dom.weatherDisplay.innerHTML = '正在定位...'; 
+                    setWeatherText('正在定位...');
                     navigator.geolocation.getCurrentPosition( (pos) => { 
                         const { latitude, longitude } = pos.coords; 
                         fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`)
@@ -888,9 +957,15 @@
                             const city = geoData.locality || geoData.city; 
                             if (city) { 
                                 settings.weatherLocation = city; setLocationSelectorsFromEnglish(city); saveSettings(); updateWeather(); 
-                            } else { dom.weatherDisplay.innerHTML = `<span style="color: ${settings.weatherColor};">定位失敗</span>`; } 
-                        }).catch(error => { dom.weatherDisplay.innerHTML = `<span style="color: ${settings.weatherColor};">定位失敗</span>`; }); 
-                    }, () => { dom.weatherDisplay.innerHTML = `<span style="color: ${settings.weatherColor};">定位失敗，請檢查權限</span>`; }, { timeout: 10000 } ); 
+                            } else { 
+                                setWeatherText(`<span style="color: ${settings.weatherColor};">定位失敗</span>`);
+                            } 
+                        }).catch(error => { 
+                            setWeatherText(`<span style="color: ${settings.weatherColor};">定位失敗</span>`);
+                        }); 
+                    }, () => { 
+                        setWeatherText(`<span style="color: ${settings.weatherColor};">定位失敗，請檢查權限</span>`);
+                    }, { timeout: 10000 } ); 
                 } else { alert("您的瀏覽器不支援地理位置功能。"); } 
             }); 
 
@@ -904,6 +979,9 @@
             document.addEventListener('mousemove', showIcons);
             document.addEventListener('touchstart', showIcons);
             showIcons();
+            
+            // [新增] 視窗大小改變時重新檢查"
+            window.addEventListener('resize', checkWeatherMarquee);
         }
 
         window.onload = function() {
