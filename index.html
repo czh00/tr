@@ -147,7 +147,7 @@
             animation: marquee linear infinite;
         }
         .weather-marquee-content {
-            padding-right: 4rem; /* [修改] 增加右邊間距，讓兩個重複內容分開 */
+            padding-right: 1rem; /* [修改] 增加右邊間距，讓兩個重複內容分開 */
         }
         @keyframes marquee {
             from { transform: translateX(0); }
@@ -176,10 +176,10 @@
 		.calendar-day-popup.is-today { border-color: var(--highlight-color); box-shadow: 0 0 5px var(--highlight-color); }
         .calendar-container .calendar-day-popup.is-today { background-color: transparent; }
         .calendar-day-popup.other-month { color: #777; background-color: #3a3a3a; cursor: default; }
-		.calendar-day-popup .gregorian-day { font-size: 1.2em; font-weight: bold; color: var(--calendar-day-color); margin: -0.2vw; }
+		.calendar-day-popup .gregorian-day { font-size: 1.2em; font-weight: bold; color: var(--calendar-day-color); margin: -0.3vw; }
 		.calendar-day-popup .lunar-day { font-size: 0.8em; color: var(--calendar-lunar-color); margin: -0.2vw; }
-        .event-indicator { font-size: 0.75em; padding: 1px 4px; border-radius: 3px; margin-top: 3px; display: block; text-align: center; width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .event-indicator.holiday { background-color: #007bff; color: white; }
+        .event-indicator { font-size: 0.75em; padding: 1px 4px; border-radius: 0px; margin-top: 0px; display: block; text-align: center; width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: -0.1vw; }
+        .event-indicator.holiday { background-color: #007bff; color: white; padding: 1px 4px; }
         .event-indicator.jieqi { background-color: #28a745; color: white; }
         
         /* 年曆 */
