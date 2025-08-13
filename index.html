@@ -40,7 +40,7 @@
             align-items: center;
             min-height: 100vh;
             margin: 0;
-            overflow: hidden;
+            overflow: hidden; /* 保持 hidden 以配合飄移功能 */
         }
 
         /* 主要容器現在只負責佔滿螢幕並置中內容 */
@@ -63,20 +63,21 @@
             transition: transform 1.5s ease-in-out;
         }
         
-        /* 媒體查詢，針對平板和桌面調整內容佈局 */
-        @media (min-width: 768px) and (min-height: 500px) {
+        /* [已修改] 媒體查詢，針對平板、桌面及手機橫向模式調整內容佈局 */
+        @media (min-width: 768px), (orientation: landscape) {
             #movable-content-wrapper {
                 flex-direction: row;
-                justify-content: center; /* 改為置中 */
-                align-items: center; /* 增加垂直置中 */
-                gap: 8vw; /* 增加間距 */
-                width: 95vw; /* 使用更多螢幕寬度 */
+                justify-content: center;
+                align-items: center;
+                gap: 5vw; /* 調整間距以適應較小的橫向螢幕 */
+                width: 95vw;
+                height: 95vh; /* 確保容器在橫向時不會過高 */
             }
         }
 
         /* 時鐘容器 */
         .clock-container {
-            width: clamp(420px, 45vw, 825px);
+            width: clamp(300px, 45vw, 600px); /* 調整最小值以適應小螢幕 */
             aspect-ratio: 1 / 1; /* 保持圓形 */
             position: relative;
             border-radius: 50%;
@@ -90,8 +91,7 @@
         
         /* 日曆容器 */
         .calendar-container {
-            /* 調整寬度以更好地適應新的日曆樣式 */
-            width: clamp(320px, 35vw, 600px);
+            width: clamp(300px, 35vw, 500px); /* 調整最小值以適應小螢幕 */
             padding: 1rem;
             text-align: center;
             z-index: 10;
